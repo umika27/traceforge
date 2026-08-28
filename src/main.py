@@ -3,8 +3,17 @@ import time
 
 from astar import astar, count_turns
 
-# CONFIGURATION
 
+# ============================================================
+# TRACEFORGE
+# Interactive PCB Auto-Router
+# Milestone 2
+# ============================================================
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 CELL_SIZE = 15
 
@@ -14,30 +23,49 @@ GRID_HEIGHT = 40
 BOARD_WIDTH = GRID_WIDTH * CELL_SIZE
 BOARD_HEIGHT = GRID_HEIGHT * CELL_SIZE
 
-WINDOW_HEIGHT = BOARD_HEIGHT + 110
+PANEL_HEIGHT = 150
+
+WINDOW_WIDTH = BOARD_WIDTH
+WINDOW_HEIGHT = BOARD_HEIGHT + PANEL_HEIGHT
 
 FPS = 60
 
+
+# ============================================================
 # COLORS
+# ============================================================
+
 BACKGROUND = (25, 25, 25)
+
 GRID_COLOR = (55, 55, 55)
 
-OBSTACLE_COLOR = (100, 100, 100)
+OBSTACLE_COLOR = (105, 105, 105)
 
-START_COLOR = (50, 200, 80)
-END_COLOR = (220, 60, 60)
+START_COLOR = (50, 210, 80)
 
-PATH_COLOR = (50, 150, 255)
-VISITED_COLOR = (70, 70, 120)
+END_COLOR = (230, 60, 60)
+
+PATH_COLOR = (40, 150, 255)
+
+VISITED_COLOR = (65, 65, 120)
+
+PANEL_COLOR = (18, 18, 18)
 
 TEXT_COLOR = (240, 240, 240)
-PANEL_COLOR = (20, 20, 20)
 
+SECONDARY_TEXT = (170, 170, 170)
+
+HIGHLIGHT_COLOR = (255, 200, 70)
+
+
+# ============================================================
 # INITIALIZE PYGAME
+# ============================================================
+
 pygame.init()
 
 screen = pygame.display.set_mode(
-    (BOARD_WIDTH, WINDOW_HEIGHT)
+    (WINDOW_WIDTH, WINDOW_HEIGHT)
 )
 
 pygame.display.set_caption(
@@ -46,9 +74,19 @@ pygame.display.set_caption(
 
 clock = pygame.time.Clock()
 
+
+# ============================================================
+# FONTS
+# ============================================================
+
 font = pygame.font.SysFont(
     "Arial",
-    18
+    17
+)
+
+small_font = pygame.font.SysFont(
+    "Arial",
+    14
 )
 
 title_font = pygame.font.SysFont(
@@ -58,7 +96,9 @@ title_font = pygame.font.SysFont(
 )
 
 
+# ============================================================
 # PCB GRID
+# ============================================================
 
 grid = [
     [0 for _ in range(GRID_WIDTH)]
@@ -66,17 +106,40 @@ grid = [
 ]
 
 
-
-# START AND END PADS
+# ============================================================
+# START / END PADS
+# ============================================================
 
 start = (3, 3)
 
 end = (45, 35)
 
 
+# ============================================================
+# APPLICATION STATE
+# ============================================================
 
-# ADD OBSTACLE
+# Current editing mode:
+#
+# "obstacle"
+# "start"
+# "end"
+# "erase"
 
+mode = "obstacle"
+
+path = None
+
+visited = []
+
+routing_time = 0
+
+mouse_down = False
+
+
+# ============================================================
+# ADD RECTANGULAR OBSTACLE
+# ============================================================
 
 def add_obstacle(x1, y1, x2, y2):
 
@@ -86,59 +149,196 @@ def add_obstacle(x1, y1, x2, y2):
 
             if (
                 0 <= x < GRID_WIDTH
-                and
-                0 <= y < GRID_HEIGHT
+                and 0 <= y < GRID_HEIGHT
             ):
 
-                grid[y][x] = 1
+                # Don't place obstacles on pads
+
+                if (x, y) != start and (x, y) != end:
+
+                    grid[y][x] = 1
 
 
-# CREATE SAMPLE PCB COMPONENTS
+# ============================================================
+# CREATE INITIAL DEMO BOARD
+# ============================================================
 
 def create_sample_board():
 
-    # Component 1
     add_obstacle(
         12, 8,
         25, 13
     )
 
-    # Component 2
     add_obstacle(
         30, 5,
         40, 10
     )
 
-    # Component 3
     add_obstacle(
         18, 20,
         30, 26
     )
 
-    # Component 4
     add_obstacle(
         35, 22,
         44, 29
     )
 
 
-
+# ============================================================
 # RESET BOARD
+# ============================================================
 
 def reset_board():
 
     global grid
+    global start
+    global end
+    global path
+    global visited
+    global routing_time
+    global mode
 
     grid = [
         [0 for _ in range(GRID_WIDTH)]
         for _ in range(GRID_HEIGHT)
     ]
 
+    start = (3, 3)
+
+    end = (45, 35)
+
     create_sample_board()
 
+    path = None
 
-# DRAW PCB GRID
+    visited = []
 
+    routing_time = 0
+
+    mode = "obstacle"
+
+
+# ============================================================
+# CLEAR ROUTE
+# ============================================================
+
+def clear_route():
+
+    global path
+    global visited
+    global routing_time
+
+    path = None
+
+    visited = []
+
+    routing_time = 0
+
+
+# ============================================================
+# CONVERT MOUSE POSITION TO GRID CELL
+# ============================================================
+
+def mouse_to_grid(position):
+
+    mouse_x, mouse_y = position
+
+    if mouse_y >= BOARD_HEIGHT:
+
+        return None
+
+    grid_x = mouse_x // CELL_SIZE
+
+    grid_y = mouse_y // CELL_SIZE
+
+    if (
+        0 <= grid_x < GRID_WIDTH
+        and
+        0 <= grid_y < GRID_HEIGHT
+    ):
+
+        return (grid_x, grid_y)
+
+    return None
+
+
+# ============================================================
+# EDIT PCB
+# ============================================================
+
+def edit_cell(cell):
+
+    global start
+    global end
+
+    if cell is None:
+
+        return
+
+    x, y = cell
+
+    # --------------------------------------------------------
+    # OBSTACLE MODE
+    # --------------------------------------------------------
+
+    if mode == "obstacle":
+
+        # Don't overwrite pads
+
+        if cell != start and cell != end:
+
+            grid[y][x] = 1
+
+            clear_route()
+
+    # --------------------------------------------------------
+    # ERASE MODE
+    # --------------------------------------------------------
+
+    elif mode == "erase":
+
+        grid[y][x] = 0
+
+        clear_route()
+
+    # --------------------------------------------------------
+    # START MODE
+    # --------------------------------------------------------
+
+    elif mode == "start":
+
+        # Start cannot be placed inside obstacle
+
+        if grid[y][x] == 0:
+
+            # Don't place start on end
+
+            if cell != end:
+
+                start = cell
+
+                clear_route()
+
+    # --------------------------------------------------------
+    # END MODE
+    # --------------------------------------------------------
+
+    elif mode == "end":
+
+        if grid[y][x] == 0:
+
+            if cell != start:
+
+                end = cell
+
+                clear_route()
+
+
+# ============================================================
+# DRAW PCB
+# ============================================================
 
 def draw_board():
 
@@ -153,7 +353,7 @@ def draw_board():
                 CELL_SIZE
             )
 
-            # Empty PCB area
+            # PCB background
 
             pygame.draw.rect(
                 screen,
@@ -161,7 +361,7 @@ def draw_board():
                 rect
             )
 
-            # Component / obstacle
+            # Component / keep-out area
 
             if grid[y][x] == 1:
 
@@ -171,7 +371,7 @@ def draw_board():
                     rect
                 )
 
-            # Grid lines
+            # Grid
 
             pygame.draw.rect(
                 screen,
@@ -181,7 +381,9 @@ def draw_board():
             )
 
 
-# DRAW SINGLE CELL
+# ============================================================
+# DRAW CELL
+# ============================================================
 
 def draw_cell(
     position,
@@ -203,11 +405,15 @@ def draw_cell(
         rect
     )
 
-# DRAW ROUTE
 
-def draw_path(path):
+# ============================================================
+# DRAW ROUTE
+# ============================================================
+
+def draw_path():
 
     if not path:
+
         return
 
     for node in path:
@@ -219,13 +425,22 @@ def draw_path(path):
                 PATH_COLOR
             )
 
-# DRAW SEARCHED NODES
 
-def draw_visited(visited):
+# ============================================================
+# DRAW A* SEARCH
+# ============================================================
+
+def draw_visited():
 
     for node in visited:
 
-        if node != start and node != end:
+        if (
+            node != start
+            and node != end
+            and not (
+                path and node in path
+            )
+        ):
 
             draw_cell(
                 node,
@@ -233,8 +448,9 @@ def draw_visited(visited):
             )
 
 
-
-# DRAW START / END
+# ============================================================
+# DRAW PADS
+# ============================================================
 
 def draw_pads():
 
@@ -249,35 +465,35 @@ def draw_pads():
     )
 
 
+# ============================================================
 # DRAW TEXT
-
+# ============================================================
 
 def draw_text(
     text,
     x,
     y,
-    font_object=font
+    font_object=font,
+    color=TEXT_COLOR
 ):
 
-    text_surface = font_object.render(
+    surface = font_object.render(
         text,
         True,
-        TEXT_COLOR
+        color
     )
 
     screen.blit(
-        text_surface,
+        surface,
         (x, y)
     )
 
 
+# ============================================================
 # DRAW INFORMATION PANEL
+# ============================================================
 
-def draw_panel(
-    path,
-    visited,
-    routing_time
-):
+def draw_panel():
 
     panel_y = BOARD_HEIGHT
 
@@ -287,29 +503,67 @@ def draw_panel(
         (
             0,
             panel_y,
-            BOARD_WIDTH,
-            WINDOW_HEIGHT - BOARD_HEIGHT
+            WINDOW_WIDTH,
+            PANEL_HEIGHT
         )
     )
 
-    # Title
+    # --------------------------------------------------------
+    # TITLE
+    # --------------------------------------------------------
 
     draw_text(
-        "TraceForge - PCB Auto-Router",
-        10,
-        panel_y + 8,
+        "TRACEFORGE",
+        15,
+        panel_y + 10,
         title_font
     )
 
-    # Controls
+    draw_text(
+        "PCB Auto-Routing & Optimization Engine",
+        150,
+        panel_y + 14,
+        small_font,
+        SECONDARY_TEXT
+    )
+
+    # --------------------------------------------------------
+    # MODE
+    # --------------------------------------------------------
+
+    draw_text(
+        f"MODE: {mode.upper()}",
+        15,
+        panel_y + 48,
+        font,
+        HIGHLIGHT_COLOR
+    )
+
+    # --------------------------------------------------------
+    # CONTROLS
+    # --------------------------------------------------------
+
+    draw_text(
+        "Left Click: Edit    Right Click: Erase",
+        180,
+        panel_y + 48
+    )
+
+    draw_text(
+        "S + Click: Start    E + Click: End",
+        180,
+        panel_y + 72
+    )
 
     draw_text(
         "SPACE: Route    R: Reset    ESC: Exit",
-        10,
-        panel_y + 38
+        180,
+        panel_y + 96
     )
 
-    # Status
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
 
     if path:
 
@@ -319,55 +573,65 @@ def draw_panel(
 
         draw_text(
             "STATUS: ROUTE FOUND ✓",
-            320,
-            panel_y + 8
+            15,
+            panel_y + 76,
+            font,
+            START_COLOR
         )
 
         draw_text(
-            f"Path Length: {path_length} cells",
-            320,
-            panel_y + 35
+            f"Length: {path_length} cells",
+            15,
+            panel_y + 103,
+            small_font
         )
 
         draw_text(
             f"Turns: {turns}",
-            320,
-            panel_y + 62
+            15,
+            panel_y + 125,
+            small_font
         )
 
         draw_text(
-            f"Nodes Explored: {len(visited)}",
-            500,
-            panel_y + 35
+            f"Nodes: {len(visited)}",
+            370,
+            panel_y + 103,
+            small_font
         )
 
         draw_text(
             f"Time: {routing_time * 1000:.3f} ms",
-            500,
-            panel_y + 62
+            370,
+            panel_y + 125,
+            small_font
         )
 
     else:
 
         draw_text(
-            "STATUS: READY TO ROUTE",
-            320,
-            panel_y + 8
-        )
-
-        draw_text(
-            "Press SPACE to run A*",
-            320,
-            panel_y + 35
+            "STATUS: READY",
+            15,
+            panel_y + 76,
+            font,
+            SECONDARY_TEXT
         )
 
 
-# 
-# ROUTE PCB
+# ============================================================
+# RUN A*
+# ============================================================
 
 def route_pcb():
 
-    print("Starting A* routing...")
+    global path
+    global visited
+    global routing_time
+
+    print()
+    print("======================================")
+    print("        TRACEFORGE A* ROUTER")
+    print("======================================")
 
     start_time = time.perf_counter()
 
@@ -384,155 +648,241 @@ def route_pcb():
 
     if path:
 
-        print()
-        print("========== ROUTING RESULT ==========")
+        path_length = len(path) - 1
+
+        turns = count_turns(path)
+
+        print("Status          : SUCCESS")
 
         print(
-            f"Status: SUCCESS"
+            f"Path length     : {path_length} cells"
         )
 
         print(
-            f"Path length: {len(path) - 1} cells"
+            f"Turns           : {turns}"
         )
 
         print(
-            f"Turns: {count_turns(path)}"
+            f"Nodes explored  : {len(visited)}"
         )
 
         print(
-            f"Nodes explored: {len(visited)}"
-        )
-
-        print(
-            f"Routing time: {routing_time * 1000:.3f} ms"
-        )
-
-        print(
-            "===================================="
+            f"Routing time    : {routing_time * 1000:.3f} ms"
         )
 
     else:
 
-        print()
-        print("========== ROUTING RESULT ==========")
+        print("Status          : NO ROUTE FOUND")
 
         print(
-            "Status: NO ROUTE FOUND"
+            f"Nodes explored  : {len(visited)}"
         )
 
-        print(
-            f"Nodes explored: {len(visited)}"
-        )
-
-        print(
-            "===================================="
-        )
-
-    return path, visited, routing_time
+    print("======================================")
 
 
-# 
+# ============================================================
+# HANDLE KEYBOARD
+# ============================================================
+
+def handle_key(event):
+
+    global mode
+
+    if event.key == pygame.K_ESCAPE:
+
+        return False
+
+    # --------------------------------------------------------
+    # ROUTE
+    # --------------------------------------------------------
+
+    if event.key == pygame.K_SPACE:
+
+        route_pcb()
+
+    # --------------------------------------------------------
+    # RESET
+    # --------------------------------------------------------
+
+    elif event.key == pygame.K_r:
+
+        reset_board()
+
+    # --------------------------------------------------------
+    # OBSTACLE MODE
+    # --------------------------------------------------------
+
+    elif event.key == pygame.K_o:
+
+        mode = "obstacle"
+
+    # --------------------------------------------------------
+    # ERASE MODE
+    # --------------------------------------------------------
+
+    elif event.key == pygame.K_x:
+
+        mode = "erase"
+
+    # --------------------------------------------------------
+    # START MODE
+    # --------------------------------------------------------
+
+    elif event.key == pygame.K_s:
+
+        mode = "start"
+
+    # --------------------------------------------------------
+    # END MODE
+    # --------------------------------------------------------
+
+    elif event.key == pygame.K_e:
+
+        mode = "end"
+
+    return True
+
+
+# ============================================================
 # MAIN LOOP
+# ============================================================
 
 def main():
 
-    create_sample_board()
+    global mouse_down
+
+    reset_board()
 
     running = True
 
-    path = None
-
-    visited = []
-
-    routing_time = 0
-
     while running:
 
+        # ====================================================
         # EVENTS
+        # ====================================================
 
         for event in pygame.event.get():
 
-            # Close window
+            # ------------------------------------------------
+            # WINDOW CLOSE
+            # ------------------------------------------------
 
             if event.type == pygame.QUIT:
 
                 running = False
 
-            # Keyboard
+            # ------------------------------------------------
+            # KEYBOARD
+            # ------------------------------------------------
 
-            if event.type == pygame.KEYDOWN:
+            elif event.type == pygame.KEYDOWN:
 
-                # Exit
+                running = handle_key(event)
 
-                if event.key == pygame.K_ESCAPE:
+            # ------------------------------------------------
+            # MOUSE DOWN
+            # ------------------------------------------------
 
-                    running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
 
-                # Route
+                if event.button == 1:
 
-                elif event.key == pygame.K_SPACE:
+                    mouse_down = True
 
-                    (
-                        path,
-                        visited,
-                        routing_time
-                    ) = route_pcb()
+                    cell = mouse_to_grid(
+                        event.pos
+                    )
 
-                # Reset
+                    edit_cell(cell)
 
-                elif event.key == pygame.K_r:
+                elif event.button == 3:
 
-                    reset_board()
+                    # Right click = erase
 
-                    path = None
+                    cell = mouse_to_grid(
+                        event.pos
+                    )
 
-                    visited = []
+                    if cell:
 
-                    routing_time = 0
+                        x, y = cell
 
+                        grid[y][x] = 0
+
+                        clear_route()
+
+            # ------------------------------------------------
+            # MOUSE UP
+            # ------------------------------------------------
+
+            elif event.type == pygame.MOUSEBUTTONUP:
+
+                if event.button == 1:
+
+                    mouse_down = False
+
+        # ====================================================
+        # MOUSE DRAG
+        # ====================================================
+
+        if mouse_down:
+
+            mouse_buttons = pygame.mouse.get_pressed()
+
+            mouse_position = pygame.mouse.get_pos()
+
+            cell = mouse_to_grid(
+                mouse_position
+            )
+
+            # Left button held
+
+            if mouse_buttons[0]:
+
+                edit_cell(cell)
+
+            # Right button held
+
+            elif mouse_buttons[2]:
+
+                if cell:
+
+                    x, y = cell
+
+                    grid[y][x] = 0
+
+                    clear_route()
+
+        # ====================================================
         # DRAW
+        # ====================================================
 
         screen.fill(
             BACKGROUND
         )
 
-        # PCB
-
         draw_board()
 
-        # A* explored nodes
+        draw_visited()
 
-        draw_visited(
-            visited
-        )
-
-        # Final route
-
-        draw_path(
-            path
-        )
-
-        # Pads
+        draw_path()
 
         draw_pads()
 
-        # Information panel
-
-        draw_panel(
-            path,
-            visited,
-            routing_time
-        )
-
-        # UPDATE
-         
+        draw_panel()
 
         pygame.display.flip()
 
         clock.tick(FPS)
 
     pygame.quit()
+
+
+# ============================================================
 # PROGRAM ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
 
     main()
